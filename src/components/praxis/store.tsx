@@ -1,125 +1,22 @@
-import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
-import { initialRuns, initialApprovals, type Run } from "./data";
-type StudioState = {
-  runs: Run[];
-  approvals: typeof initialApprovals;
-  newRun: boolean;
-  setNewRun: (value: boolean) => void;
-  palette: boolean;
-  setPalette: (value: boolean) => void;
-  addRun: (name: string, agent: string) => void;
-  resolve: (id: string, approved: boolean) => void;
-  notice: string;
-  notify: (text: string) => void;
-  selectedRun: Run | null;
-  setSelectedRun: (run: Run | null) => void;
-};
-const StudioContext = createContext<StudioState | null>(null);
-export function StudioProvider({ children }: { children: ReactNode }) {
-  const [runs, setRuns] = useState(initialRuns);
-  const [approvals, setApprovals] = useState(initialApprovals);
-  const [newRun, setNewRun] = useState(false);
-  const [palette, setPalette] = useState(false);
-  const [notice, setNotice] = useState("");
-  const [selectedRun, setSelectedRun] = useState<Run | null>(null);
-  const notify = (text: string) => setNotice(text);
-  useEffect(() => {
-    if (!notice) return;
-    const timer = setTimeout(() => setNotice(""), 4000);
-    return () => clearTimeout(timer);
-  }, [notice]);
-  useEffect(() => {
-    const timer = setInterval(
-      () =>
-        setRuns((prev) =>
-          prev.map((run) =>
-            run.status === "Running"
-              ? {
-                  ...run,
-                  progress: Math.min(100, run.progress + 3),
-                  status: run.progress + 3 >= 100 ? "Completed" : "Running",
-                }
-              : run,
-          ),
-        ),
-      2200,
-    );
-    return () => clearInterval(timer);
-  }, []);
-  useEffect(() => {
-    const listener = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key === "k") {
-        e.preventDefault();
-        setPalette((v) => !v);
-      }
-      if (e.key === "Escape") {
-        setPalette(false);
-        setNewRun(false);
-        setSelectedRun(null);
-      }
-      if (
-        e.key === "n" &&
-        !["INPUT", "TEXTAREA", "SELECT"].includes((e.target as HTMLElement).tagName) &&
-        !e.metaKey &&
-        !e.ctrlKey
-      )
-        setNewRun(true);
-    };
-    window.addEventListener("keydown", listener);
-    return () => window.removeEventListener("keydown", listener);
-  }, []);
-  const addRun = (name: string, agent: string) => {
-    setRuns((prev) => [
-      {
-        id: `run_${Math.random().toString(16).slice(2, 6)}`,
-        name,
-        agent,
-        status: "Running",
-        time: "Just now",
-        tokens: "0",
-        cost: "$0.000",
-        progress: 0,
-      },
-      ...prev,
-    ]);
-    setNewRun(false);
-    notify("Run started · runtime initialized");
-  };
-  const resolve = (id: string, approved: boolean) => {
-    setApprovals((prev) => prev.filter((a) => a.id !== id));
-    if (id === "apr_01")
-      setRuns((prev) =>
-        prev.map((r) =>
-          r.id === "run_7e1b" ? { ...r, status: approved ? "Running" : "Rejected" } : r,
-        ),
-      );
-    notify(
-      approved ? "Action approved · execution resumed" : "Action rejected · checkpoint preserved",
-    );
-  };
-  return (
-    <StudioContext.Provider
-      value={{
-        runs,
-        approvals,
-        newRun,
-        setNewRun,
-        palette,
-        setPalette,
-        addRun,
-        resolve,
-        notice,
-        notify,
-        selectedRun,
-        setSelectedRun,
-      }}
-    >
-      {children}
-    </StudioContext.Provider>
-  );
+import { createContext, useContext, useEffect, useState, type ReactNode, type Dispatch, type SetStateAction } from 'react';
+import type { Run } from './data';
+import { createInitialState, advanceRuns, type MockState, type ResourceKind, type Resource, type Graph, type Agent } from './model';
+type StudioState = { mock:MockState; setMock:Dispatch<SetStateAction<MockState>>; runs:Run[]; approvals:MockState['approvals']; newRun:boolean; setNewRun:(v:boolean)=>void; palette:boolean; setPalette:(v:boolean)=>void; addRun:(name:string,agent:string,budget?:number)=>void; resolve:(id:string,approved:boolean)=>void; notice:string; notify:(text:string)=>void; selectedRun:Run|null; setSelectedRun:(r:Run|null)=>void; updateResource:(kind:ResourceKind,id:string,patch:Partial<Resource>)=>void; addResource:(kind:ResourceKind,resource:Resource)=>void; updateGraph:(graph:Graph)=>void; saveAgent:(agent:Agent,original?:string)=>void; runAction:(id:string,action:'pause'|'resume'|'cancel'|'retry')=>void; log:(subject:string,message:string)=>void };
+const StudioContext=createContext<StudioState|null>(null);
+export function StudioProvider({children}:{children:ReactNode}) {
+ const [mock,setMock]=useState(createInitialState);const [newRun,setNewRun]=useState(false);const [palette,setPalette]=useState(false);const [notice,setNotice]=useState('');const [selectedRun,setSelectedRun]=useState<Run|null>(null);
+ const notify=(text:string)=>setNotice(text);const log=(subject:string,message:string)=>setMock(prev=>({...prev,events:[{id:`evt_${crypto.randomUUID()}`,time:new Date().toISOString().slice(11,19),subject,message:`SIMULATED · ${message}`,level:'INFO'},...prev.events].slice(0,100)}));
+ useEffect(()=>{if(!notice)return;const t=setTimeout(()=>setNotice(''),4000);return()=>clearTimeout(t);},[notice]);
+ useEffect(()=>{const t=setInterval(()=>setMock(prev=>{const runs=advanceRuns(prev.runs);const finished=runs.filter(r=>r.status==='Completed'&&prev.runs.find(p=>p.id===r.id)?.status==='Running');return {...prev,runs,resources:finished.length?{...prev.resources,artifacts:[...finished.map(r=>({id:`artifact_${r.id}`,name:`${r.name}.md`,type:'Report',status:'Verified',scope:'Workspace',description:'Simulated run output',updated:new Date().toISOString(),confidence:.982,provenance:r.id,fields:{version:'1.0',run:r.id,author:r.agent,size:'12 KB',sources:'6 simulated sources',classification:'Internal'},content:`# ${r.name}\n\nSIMULATED · task completed by ${r.agent}.\n\nFindings: six sources reviewed, policies passed, evidence captured. Grounding score: 98.2%. No external services contacted.`})),...prev.resources.artifacts],evidence:[...finished.map(r=>({id:`evidence_${r.id}`,name:`${r.name} evidence`,type:'Evidence bundle',status:'Verified',scope:'Workspace',description:'Simulated source chain',updated:new Date().toISOString(),confidence:.982,provenance:r.id,fields:{run:r.id,claims:'24',sources:'6',grounding:'98.2%',integrity:'SIMULATED',artifact:`${r.name}.md`},content:'Mock provenance chain verified'})),...prev.resources.evidence]}:prev.resources};}),2200);return()=>clearInterval(t);},[]);
+ useEffect(()=>{const l=(e:KeyboardEvent)=>{if((e.metaKey||e.ctrlKey)&&e.key.toLowerCase()==='k'){e.preventDefault();setPalette(v=>!v);}if(e.key==='Escape'){setPalette(false);setNewRun(false);setSelectedRun(null);}if(e.key==='n'&&!['INPUT','TEXTAREA','SELECT'].includes((e.target as HTMLElement).tagName)&&!(e.target as HTMLElement).isContentEditable&&!e.metaKey&&!e.ctrlKey)setNewRun(true);};window.addEventListener('keydown',l);return()=>window.removeEventListener('keydown',l);},[]);
+ const addRun=(name:string,agent:string,budget=5)=>{if(!name.trim()||budget<=0)return;setMock(prev=>({...prev,runs:[{id:`run_${crypto.randomUUID().slice(0,8)}`,name,agent,status:'Running',time:'Just now',tokens:'0',cost:'$0.000',progress:0},...prev.runs]}));setNewRun(false);log(agent,`Run started: ${name} · budget $${budget.toFixed(2)}`);notify('SIMULATED · Run started in local sandbox');};
+ const resolve=(id:string,approved:boolean)=>{setMock(prev=>{const a=prev.approvals.find(a=>a.id===id);if(!a)return prev;return {...prev,approvals:prev.approvals.filter(a=>a.id!==id),decisions:[{id,title:a.title,status:approved?'Completed':'Rejected',at:new Date().toISOString()},...prev.decisions],runs:prev.runs.map(r=>id==='apr_01'&&r.id==='run_7e1b'?{...r,status:approved?'Running':'Rejected'}:r)};});log(id,approved?'Human approval granted':'Action rejected; checkpoint retained');notify(approved?'SIMULATED · Approved and resumed':'SIMULATED · Rejected');};
+ const updateResource=(kind:ResourceKind,id:string,patch:Partial<Resource>)=>setMock(prev=>({...prev,resources:{...prev.resources,[kind]:prev.resources[kind].map(r=>r.id===id?{...r,...patch,updated:new Date().toISOString()}:r)}}));
+ const addResource=(kind:ResourceKind,resource:Resource)=>setMock(prev=>({...prev,resources:{...prev.resources,[kind]:[resource,...prev.resources[kind]]}}));
+ const updateGraph=(graph:Graph)=>setMock(prev=>({...prev,graphs:prev.graphs.some(g=>g.id===graph.id)?prev.graphs.map(g=>g.id===graph.id?graph:g):[...prev.graphs,graph]}));
+ const saveAgent=(agent:Agent,original?:string)=>{setMock(prev=>({...prev,agents:original&&prev.agents.some(a=>a.name===original)?prev.agents.map(a=>a.name===original?agent:a):[...prev.agents,agent]}));notify('SIMULATED · Specialist saved to workspace');};
+ const runAction=(id:string,action:'pause'|'resume'|'cancel'|'retry')=>{setMock(prev=>({...prev,runs:prev.runs.map(r=>r.id===id?{...r,status:action==='pause'?'Paused':action==='cancel'?'Cancelled':'Running',progress:action==='retry'?0:r.progress}:r)}));log(id,action);notify(`SIMULATED · Run ${action}`);};
+ return <StudioContext.Provider value={{mock,setMock,runs:mock.runs,approvals:mock.approvals,newRun,setNewRun,palette,setPalette,addRun,resolve,notice,notify,selectedRun,setSelectedRun,updateResource,addResource,updateGraph,saveAgent,runAction,log}}>{children}</StudioContext.Provider>;
 }
-export function useStudio() {
-  const state = useContext(StudioContext);
-  if (!state) throw new Error("StudioProvider required");
-  return state;
-}
+export function useStudio(){const state=useContext(StudioContext);if(!state)throw new Error('StudioProvider required');return state;}
+export function useSessionState<T>(key:string,initial:T):[T,Dispatch<SetStateAction<T>>]{const {mock,setMock}=useStudio();const value=key in mock.ui?mock.ui[key] as T:initial;const set:Dispatch<SetStateAction<T>>=next=>setMock(prev=>{const current=key in prev.ui?prev.ui[key] as T:initial;return {...prev,ui:{...prev.ui,[key]:typeof next==='function'?(next as (p:T)=>T)(current):next}};});return [value,set];}
